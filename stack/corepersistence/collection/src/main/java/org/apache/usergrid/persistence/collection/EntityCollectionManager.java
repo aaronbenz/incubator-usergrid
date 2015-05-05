@@ -96,6 +96,20 @@ public interface EntityCollectionManager {
      */
     Observable<EntitySet> load( Collection<Id> entityIds );
 
+    /**
+     * Get all versions of the log entry, from Max to min
+     * @param entityId
+     * @return An observable stream of mvccLog entries
+     */
+    Observable<MvccLogEntry> getVersions(final Id entityId);
+
+    /**
+     * Remove these versions.  Must be atomic so that read log entries are removed
+     * @param entries
+     * @return Any observable of all successfully compacted log entries
+     */
+    Observable<MvccLogEntry> compact(final Collection<MvccLogEntry> entries);
+
 
     /**
      * Returns health of entity data store.

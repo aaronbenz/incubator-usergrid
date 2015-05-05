@@ -18,7 +18,7 @@ import com.netflix.astyanax.connectionpool.exceptions.ConnectionException;
 /**
  * Iterator that will iterate all versions of the entity from the log from < the specified maxVersion
  */
-public class LogEntryIterator implements Iterator<MvccLogEntry> {
+public class MinMaxLogEntryIterator implements Iterator<MvccLogEntry> {
 
 
     private final MvccLogEntrySerializationStrategy logEntrySerializationStrategy;
@@ -35,13 +35,13 @@ public class LogEntryIterator implements Iterator<MvccLogEntry> {
      * @param logEntrySerializationStrategy The serialization strategy to get the log entries
      * @param scope The scope of the entity
      * @param entityId The id of the entity
-     * @param maxVersion The max version of the entity.  Iterator will iterate from max to min starting with the version
+     * @param maxVersion The max version of the entity.  Iterator will iterate from min to min starting with the version
      * < max
      * @param pageSize The fetch size to get when querying the serialization strategy
      */
-    public LogEntryIterator( final MvccLogEntrySerializationStrategy logEntrySerializationStrategy,
-                             final ApplicationScope scope, final Id entityId, final UUID maxVersion,
-                             final int pageSize ) {
+    public MinMaxLogEntryIterator( final MvccLogEntrySerializationStrategy logEntrySerializationStrategy,
+                                   final ApplicationScope scope, final Id entityId, final UUID maxVersion,
+                                   final int pageSize ) {
 
         Preconditions.checkArgument( pageSize > 0, "pageSize must be > 0" );
 

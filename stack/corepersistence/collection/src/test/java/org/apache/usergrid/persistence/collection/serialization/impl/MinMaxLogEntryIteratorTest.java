@@ -29,7 +29,7 @@ import static org.mockito.Mockito.when;
 /**
  * Tests iterator paging
  */
-public class LogEntryIteratorTest {
+public class MinMaxLogEntryIteratorTest {
 
 
     @Test
@@ -54,7 +54,8 @@ public class LogEntryIteratorTest {
 
 
         //now iterate we should get everything
-        LogEntryIterator itr = new LogEntryIterator( logEntrySerializationStrategy, scope, entityId, start, pageSize );
+        MinMaxLogEntryIterator
+            itr = new MinMaxLogEntryIterator( logEntrySerializationStrategy, scope, entityId, start, pageSize );
 
 
         assertFalse( itr.hasNext() );
@@ -114,7 +115,8 @@ public class LogEntryIteratorTest {
         UUID start = expectedEntries.next().getVersion();
 
         //now iterate we should get everything
-        LogEntryIterator itr = new LogEntryIterator( logEntrySerializationStrategy, scope, entityId, start, pageSize );
+        MinMaxLogEntryIterator
+            itr = new MinMaxLogEntryIterator( logEntrySerializationStrategy, scope, entityId, start, pageSize );
 
 
         while ( expectedEntries.hasNext() && itr.hasNext() ) {

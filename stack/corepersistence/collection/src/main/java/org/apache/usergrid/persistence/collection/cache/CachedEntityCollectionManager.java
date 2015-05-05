@@ -26,6 +26,7 @@ import java.util.concurrent.TimeUnit;
 import org.apache.usergrid.persistence.collection.EntityCollectionManager;
 import org.apache.usergrid.persistence.collection.EntitySet;
 import org.apache.usergrid.persistence.collection.FieldSet;
+import org.apache.usergrid.persistence.collection.MvccLogEntry;
 import org.apache.usergrid.persistence.collection.VersionSet;
 import org.apache.usergrid.persistence.core.util.Health;
 import org.apache.usergrid.persistence.model.entity.Entity;
@@ -124,6 +125,19 @@ public class CachedEntityCollectionManager implements EntityCollectionManager {
     public Observable<EntitySet> load( final Collection<Id> entityIds ) {
         return targetEntityCollectionManager.load( entityIds );
     }
+
+
+    @Override
+    public Observable<MvccLogEntry> getVersions( final Id entityId ) {
+        return null;
+    }
+
+
+    @Override
+    public Observable<MvccLogEntry> compact( final Collection<MvccLogEntry> entries ) {
+        return targetEntityCollectionManager.compact( entries );
+    }
+
 
     @Override
     public Health getHealth() {
