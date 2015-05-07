@@ -89,19 +89,16 @@ public abstract class MvccLogEntrySerializationStrategyImpl<K> implements MvccLo
         final UUID colName = entry.getVersion();
         final StageStatus stageStatus = new StageStatus( stage, entry.getState() );
 
-        return doWrite( collectionScope, entry.getEntityId(), entry.getVersion(), new RowOp() {
-            @Override
-            public void doOp( final ColumnListMutation<UUID> colMutation ) {
+        return doWrite( collectionScope, entry.getEntityId(), entry.getVersion(), colMutation -> {
 
-                //Write the stage with a timeout, it's set as transient
-                if ( stage.isTransient() ) {
-                    colMutation.putColumn( colName, stageStatus, SER, fig.getTimeout() );
-                    return;
-                }
-
-                //otherwise it's persistent, write it with no expiration
-                colMutation.putColumn( colName, stageStatus, SER, null );
+            //Write the stage with a timeout, it's set as transient
+            if ( stage.isTransient() ) {
+                colMutation.putColumn( colName, stageStatus, SER, fig.getTimeout() );
+                return;
             }
+
+            //otherwise it's persistent, write it with no expiration
+            colMutation.putColumn( colName, stageStatus, SER, null );
         } );
     }
 
@@ -253,12 +250,7 @@ public abstract class MvccLogEntrySerializationStrategyImpl<K> implements MvccLo
         Preconditions.checkNotNull( entityId, "entityId is required" );
         Preconditions.checkNotNull( version, "version context is required" );
 
-        return doWrite( context, entityId, version, new RowOp() {
-            @Override
-            public void doOp( final ColumnListMutation<UUID> colMutation ) {
-                colMutation.deleteColumn( version );
-            }
-        } );
+        return doWrite( context, entityId, version, colMutation -> colMutation.deleteColumn( version ) );
     }
 
 

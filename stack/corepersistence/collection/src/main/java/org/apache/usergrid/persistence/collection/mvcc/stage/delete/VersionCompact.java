@@ -87,19 +87,19 @@ public class VersionCompact
                         final Id entityId = mvccLogEntry.getEntityId();
                         final UUID version = mvccLogEntry.getVersion();
 
-                        //delete from our log
-                        mutationBatch.mergeShallow( logEntrySerializationStrategy.delete( scope, entityId, version ) );
-
-                        //merge our entity delete in
-                        mutationBatch
-                            .mergeShallow( mvccEntitySerializationStrategy.delete( scope, entityId, version ) );
-
                         if ( logger.isDebugEnabled() ) {
                             logger.debug(
                                 "Deleting log entry and version data for entity id {} and version {} in app scope {}",
                                 new Object[] { entityId, version, scope } );
                         }
 
+
+                        //delete from our log
+                        mutationBatch.mergeShallow( logEntrySerializationStrategy.delete( scope, entityId, version ) );
+
+                        //merge our entity delete in
+                        mutationBatch
+                            .mergeShallow( mvccEntitySerializationStrategy.delete( scope, entityId, version ) );
 
 
 

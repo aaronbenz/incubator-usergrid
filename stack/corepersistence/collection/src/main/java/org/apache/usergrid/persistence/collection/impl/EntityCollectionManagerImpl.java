@@ -22,6 +22,7 @@ package org.apache.usergrid.persistence.collection.impl;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 import java.util.UUID;
 
@@ -37,6 +38,8 @@ import org.apache.usergrid.persistence.collection.VersionSet;
 import org.apache.usergrid.persistence.collection.mvcc.stage.CollectionIoEvent;
 import org.apache.usergrid.persistence.collection.mvcc.stage.delete.MarkCommit;
 import org.apache.usergrid.persistence.collection.mvcc.stage.delete.MarkStart;
+import org.apache.usergrid.persistence.collection.mvcc.stage.delete.UniqueCleanup;
+import org.apache.usergrid.persistence.collection.mvcc.stage.delete.VersionCompact;
 import org.apache.usergrid.persistence.collection.mvcc.stage.write.RollbackAction;
 import org.apache.usergrid.persistence.collection.mvcc.stage.write.WriteCommit;
 import org.apache.usergrid.persistence.collection.mvcc.stage.write.WriteOptimisticVerify;
@@ -44,12 +47,15 @@ import org.apache.usergrid.persistence.collection.mvcc.stage.write.WriteStart;
 import org.apache.usergrid.persistence.collection.mvcc.stage.write.WriteUniqueVerify;
 import org.apache.usergrid.persistence.collection.serialization.MvccEntitySerializationStrategy;
 import org.apache.usergrid.persistence.collection.serialization.MvccLogEntrySerializationStrategy;
+import org.apache.usergrid.persistence.collection.serialization.SerializationFig;
 import org.apache.usergrid.persistence.collection.serialization.UniqueValue;
 import org.apache.usergrid.persistence.collection.serialization.UniqueValueSerializationStrategy;
 import org.apache.usergrid.persistence.collection.serialization.UniqueValueSet;
+import org.apache.usergrid.persistence.collection.serialization.impl.MinMaxLogEntryIterator;
 import org.apache.usergrid.persistence.collection.serialization.impl.MutableFieldSet;
 import org.apache.usergrid.persistence.core.metrics.MetricsFactory;
 import org.apache.usergrid.persistence.core.metrics.ObservableTimer;
+import org.apache.usergrid.persistence.core.rx.ObservableIterator;
 import org.apache.usergrid.persistence.core.rx.RxTaskScheduler;
 import org.apache.usergrid.persistence.core.scope.ApplicationScope;
 import org.apache.usergrid.persistence.core.util.Health;
@@ -91,6 +97,8 @@ public class EntityCollectionManagerImpl implements EntityCollectionManager {
     private final WriteOptimisticVerify writeOptimisticVerify;
     private final WriteCommit writeCommit;
     private final RollbackAction rollback;
+    private final UniqueCleanup uniqueCleanup;
+    private final VersionCompact versionCompact;
 
 
     //delete stages
@@ -101,8 +109,8 @@ public class EntityCollectionManagerImpl implements EntityCollectionManager {
     private final MvccEntitySerializationStrategy entitySerializationStrategy;
     private final UniqueValueSerializationStrategy uniqueValueSerializationStrategy;
 
+    private final SerializationFig serializationFig;
 
-    private final RxTaskScheduler rxTaskScheduler;
 
     private final Keyspace keyspace;
     private final Timer writeTimer;
@@ -114,7 +122,7 @@ public class EntityCollectionManagerImpl implements EntityCollectionManager {
     private final Timer getLatestTimer;
 
     private final ApplicationScope applicationScope;
-
+    private final RxTaskScheduler rxTaskScheduler;
 
 
     @Inject
@@ -122,15 +130,18 @@ public class EntityCollectionManagerImpl implements EntityCollectionManager {
                                         final WriteOptimisticVerify writeOptimisticVerify,
                                         final WriteCommit writeCommit, final RollbackAction rollback,
                                         final MarkStart markStart, final MarkCommit markCommit,
+                                        final UniqueCleanup uniqueCleanup, final VersionCompact versionCompact,
                                         final MvccEntitySerializationStrategy entitySerializationStrategy,
                                         final UniqueValueSerializationStrategy uniqueValueSerializationStrategy,
                                         final MvccLogEntrySerializationStrategy mvccLogEntrySerializationStrategy,
-                                        final Keyspace keyspace, @Assisted final ApplicationScope applicationScope,
-                                        final MetricsFactory metricsFactory,
-
-                                        final RxTaskScheduler rxTaskScheduler ) {
+                                        final Keyspace keyspace, final MetricsFactory metricsFactory,
+                                        final SerializationFig serializationFig, final RxTaskScheduler rxTaskScheduler,
+                                        @Assisted final ApplicationScope applicationScope ) {
         this.uniqueValueSerializationStrategy = uniqueValueSerializationStrategy;
         this.entitySerializationStrategy = entitySerializationStrategy;
+        this.uniqueCleanup = uniqueCleanup;
+        this.versionCompact = versionCompact;
+        this.serializationFig = serializationFig;
         this.rxTaskScheduler = rxTaskScheduler;
 
         ValidationUtils.validateApplicationScope( applicationScope );
@@ -184,14 +195,15 @@ public class EntityCollectionManagerImpl implements EntityCollectionManager {
 
 
     @Override
-    public Observable<Id> delete( final Id entityId ) {
+    public Observable<Id> mark( final Id entityId ) {
 
         Preconditions.checkNotNull( entityId, "Entity id is required in this stage" );
         Preconditions.checkNotNull( entityId.getUuid(), "Entity id is required in this stage" );
         Preconditions.checkNotNull( entityId.getType(), "Entity type is required in this stage" );
 
-        Observable<Id> o = Observable.just( new CollectionIoEvent<Id>( applicationScope, entityId ) ).map( markStart )
-                                     .doOnNext( markCommit ).map( entityEvent -> entityEvent.getEvent().getId() );
+        Observable<Id> o = Observable.just( new CollectionIoEvent<>( applicationScope, entityId ) ).map( markStart )
+                                     .doOnNext( markCommit ).compose( uniqueCleanup ).map(
+                entityEvent -> entityEvent.getEvent().getId() );
 
 
         return ObservableTimer.time( o, deleteTimer );
@@ -205,7 +217,7 @@ public class EntityCollectionManagerImpl implements EntityCollectionManager {
         Preconditions.checkNotNull( entityId.getUuid(), "Entity id uuid required in load stage" );
         Preconditions.checkNotNull( entityId.getType(), "Entity id type required in load stage" );
 
-        final Observable<Entity> entityObservable=  load( Collections.singleton( entityId ) ).flatMap( entitySet -> {
+        final Observable<Entity> entityObservable = load( Collections.singleton( entityId ) ).flatMap( entitySet -> {
             final MvccEntity entity = entitySet.getEntity( entityId );
 
             if ( entity == null || !entity.getEntity().isPresent() ) {
@@ -225,7 +237,7 @@ public class EntityCollectionManagerImpl implements EntityCollectionManager {
 
         Preconditions.checkNotNull( entityIds, "entityIds cannot be null" );
 
-        final Observable<EntitySet> entitySetObservable =  Observable.create( new Observable.OnSubscribe<EntitySet>() {
+        final Observable<EntitySet> entitySetObservable = Observable.create( new Observable.OnSubscribe<EntitySet>() {
 
             @Override
             public void call( final Subscriber<? super EntitySet> subscriber ) {
@@ -249,21 +261,32 @@ public class EntityCollectionManagerImpl implements EntityCollectionManager {
 
     @Override
     public Observable<MvccLogEntry> getVersions( final Id entityId ) {
-//        mvccLogEntrySerializationStrategy.load(  )
-        return null;
+        ValidationUtils.verifyIdentity( entityId );
+
+        return Observable.create( new ObservableIterator<MvccLogEntry>( "Log entry iterator" ) {
+            @Override
+            protected Iterator<MvccLogEntry> getIterator() {
+                return new MinMaxLogEntryIterator( mvccLogEntrySerializationStrategy, applicationScope, entityId,
+                    serializationFig.getBufferSize() );
+            }
+        } );
     }
 
 
     @Override
-    public Observable<MvccLogEntry> compact( final Collection<MvccLogEntry> entries ) {
-        return null;
+    public Observable<MvccLogEntry> delete( final Collection<MvccLogEntry> entries ) {
+        Preconditions.checkNotNull( entries, "entries must not be null" );
+
+
+        return Observable.from( entries ).map( logEntry -> new CollectionIoEvent<>( applicationScope, logEntry ) )
+                         .compose( versionCompact ).map( event -> event.getEvent() );
     }
 
 
     @Override
     public Observable<Id> getIdField( final String type, final Field field ) {
         final List<Field> fields = Collections.singletonList( field );
-        final Observable<Id> idObservable =  Observable.from( fields ).map( field1 -> {
+        final Observable<Id> idObservable = Observable.from( fields ).map( field1 -> {
             try {
                 final UniqueValueSet set = uniqueValueSerializationStrategy.load( applicationScope, type, fields );
                 final UniqueValue value = set.getValue( field1.getName() );
@@ -315,8 +338,7 @@ public class EntityCollectionManagerImpl implements EntityCollectionManager {
                 }
 
                 //Load a entity for each entityId we retrieved.
-                final EntitySet entitySet =
-                    entitySerializationStrategy.load( applicationScope, entityIds, startTime );
+                final EntitySet entitySet = entitySerializationStrategy.load( applicationScope, entityIds, startTime );
 
                 //now loop through and ensure the entities are there.
                 final MutationBatch deleteBatch = keyspace.prepareMutationBatch();
@@ -372,11 +394,10 @@ public class EntityCollectionManagerImpl implements EntityCollectionManager {
                 Observable.just( mvccEntityCollectionIoEvent ).subscribeOn( rxTaskScheduler.getAsyncIOScheduler() )
                           .doOnNext( writeOptimisticVerify );
 
-            final Observable<CollectionIoEvent<MvccEntity>> zip =  Observable.zip( uniqueObservable, optimisticObservable,
-                ( unique, optimistic ) -> optimistic );
+            final Observable<CollectionIoEvent<MvccEntity>> zip =
+                Observable.zip( uniqueObservable, optimisticObservable, ( unique, optimistic ) -> optimistic );
 
             return zip;
-
         } );
     }
 
@@ -384,8 +405,8 @@ public class EntityCollectionManagerImpl implements EntityCollectionManager {
     @Override
     public Observable<VersionSet> getLatestVersion( final Collection<Id> entityIds ) {
 
-        final Timer.Context timer = getLatestTimer.time();
-        return Observable.create( new Observable.OnSubscribe<VersionSet>() {
+
+        final Observable<VersionSet> observable =  Observable.create( new Observable.OnSubscribe<VersionSet>() {
 
             @Override
             public void call( final Subscriber<? super VersionSet> subscriber ) {
@@ -400,12 +421,9 @@ public class EntityCollectionManagerImpl implements EntityCollectionManager {
                     subscriber.onError( e );
                 }
             }
-        } ).doOnCompleted( new Action0() {
-            @Override
-            public void call() {
-                timer.stop();
-            }
         } );
+
+        return ObservableTimer.time( observable, getLatestTimer );
     }
 
 

@@ -29,6 +29,8 @@ import org.apache.usergrid.persistence.collection.cache.CachedEntityCollectionMa
 import org.apache.usergrid.persistence.collection.cache.EntityCacheFig;
 import org.apache.usergrid.persistence.collection.mvcc.stage.delete.MarkCommit;
 import org.apache.usergrid.persistence.collection.mvcc.stage.delete.MarkStart;
+import org.apache.usergrid.persistence.collection.mvcc.stage.delete.UniqueCleanup;
+import org.apache.usergrid.persistence.collection.mvcc.stage.delete.VersionCompact;
 import org.apache.usergrid.persistence.collection.mvcc.stage.write.RollbackAction;
 import org.apache.usergrid.persistence.collection.mvcc.stage.write.WriteCommit;
 import org.apache.usergrid.persistence.collection.mvcc.stage.write.WriteOptimisticVerify;
@@ -36,6 +38,7 @@ import org.apache.usergrid.persistence.collection.mvcc.stage.write.WriteStart;
 import org.apache.usergrid.persistence.collection.mvcc.stage.write.WriteUniqueVerify;
 import org.apache.usergrid.persistence.collection.serialization.MvccEntitySerializationStrategy;
 import org.apache.usergrid.persistence.collection.serialization.MvccLogEntrySerializationStrategy;
+import org.apache.usergrid.persistence.collection.serialization.SerializationFig;
 import org.apache.usergrid.persistence.collection.serialization.UniqueValueSerializationStrategy;
 import org.apache.usergrid.persistence.core.metrics.MetricsFactory;
 import org.apache.usergrid.persistence.core.rx.RxTaskScheduler;
@@ -65,6 +68,9 @@ public class EntityCollectionManagerFactoryImpl implements EntityCollectionManag
     private final RollbackAction rollback;
     private final MarkStart markStart;
     private final MarkCommit markCommit;
+    private final UniqueCleanup uniqueCleanup;
+    private final VersionCompact versionCompact;
+    private final SerializationFig serializationFig;
     private final MvccEntitySerializationStrategy entitySerializationStrategy;
     private final UniqueValueSerializationStrategy uniqueValueSerializationStrategy;
     private final MvccLogEntrySerializationStrategy mvccLogEntrySerializationStrategy;
@@ -80,10 +86,11 @@ public class EntityCollectionManagerFactoryImpl implements EntityCollectionManag
                                   //create the target EM that will perform logic
                             final EntityCollectionManager target = new EntityCollectionManagerImpl(
                                 writeStart, writeVerifyUnique,
-                                writeOptimisticVerify, writeCommit, rollback, markStart, markCommit,
+                                writeOptimisticVerify, writeCommit, rollback, markStart, markCommit,  uniqueCleanup, versionCompact,
                                 entitySerializationStrategy, uniqueValueSerializationStrategy,
-                                mvccLogEntrySerializationStrategy, keyspace, scope, metricsFactory,
-                                rxTaskScheduler );
+                                mvccLogEntrySerializationStrategy, keyspace,
+                                metricsFactory, serializationFig,
+                                rxTaskScheduler, scope );
 
 
                             final EntityCollectionManager proxy = new CachedEntityCollectionManager(entityCacheFig, target  );
@@ -98,7 +105,9 @@ public class EntityCollectionManagerFactoryImpl implements EntityCollectionManag
                                                final WriteOptimisticVerify writeOptimisticVerify,
                                                final WriteCommit writeCommit, final RollbackAction rollback,
                                                final MarkStart markStart, final MarkCommit markCommit,
-                                               final MvccEntitySerializationStrategy entitySerializationStrategy,
+                                               final UniqueCleanup uniqueCleanup, final VersionCompact versionCompact,
+                                               final SerializationFig serializationFig, final
+                                                   MvccEntitySerializationStrategy entitySerializationStrategy,
                                                final UniqueValueSerializationStrategy uniqueValueSerializationStrategy,
                                                final MvccLogEntrySerializationStrategy mvccLogEntrySerializationStrategy,
                                                final Keyspace keyspace, final EntityCacheFig entityCacheFig,
@@ -111,6 +120,9 @@ public class EntityCollectionManagerFactoryImpl implements EntityCollectionManag
         this.rollback = rollback;
         this.markStart = markStart;
         this.markCommit = markCommit;
+        this.uniqueCleanup = uniqueCleanup;
+        this.versionCompact = versionCompact;
+        this.serializationFig = serializationFig;
         this.entitySerializationStrategy = entitySerializationStrategy;
         this.uniqueValueSerializationStrategy = uniqueValueSerializationStrategy;
         this.mvccLogEntrySerializationStrategy = mvccLogEntrySerializationStrategy;

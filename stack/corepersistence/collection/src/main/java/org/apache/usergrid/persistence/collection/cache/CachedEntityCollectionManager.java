@@ -85,8 +85,8 @@ public class CachedEntityCollectionManager implements EntityCollectionManager {
 
 
     @Override
-    public Observable<Id> delete( final Id entityId ) {
-        return targetEntityCollectionManager.delete( entityId ).doOnNext( new Action1<Id>() {
+    public Observable<Id> mark( final Id entityId ) {
+        return targetEntityCollectionManager.mark( entityId ).doOnNext( new Action1<Id>() {
             @Override
             public void call( final Id id ) {
                 entityCache.invalidate( id );
@@ -129,13 +129,13 @@ public class CachedEntityCollectionManager implements EntityCollectionManager {
 
     @Override
     public Observable<MvccLogEntry> getVersions( final Id entityId ) {
-        return null;
+        return targetEntityCollectionManager.getVersions( entityId );
     }
 
 
     @Override
-    public Observable<MvccLogEntry> compact( final Collection<MvccLogEntry> entries ) {
-        return targetEntityCollectionManager.compact( entries );
+    public Observable<MvccLogEntry> delete( final Collection<MvccLogEntry> entries ) {
+        return targetEntityCollectionManager.delete( entries );
     }
 
 
